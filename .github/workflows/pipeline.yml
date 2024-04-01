@@ -2,7 +2,7 @@ on: push
 
 jobs:
   check:
-    name: Check
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -18,10 +18,11 @@ jobs:
       - name: Run cargo check
         uses: actions-rs/cargo@v1
         with:
-          command: check
+          command: build
 
   test:
     name: Test
+    needs: Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
