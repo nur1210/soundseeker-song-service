@@ -1,9 +1,12 @@
 on: push
 
 jobs:
-  build:
-    name: Build
+
+  setup:
+    name: Setup
     runs-on: ubuntu-latest
+    outputs:
+      protoc-path: ${{ steps.install-protoc.outputs.protoc-path }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -16,7 +19,21 @@ jobs:
           override: true
 
       - name: Install protobuf compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        id: install-protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          echo "::set-output name=protoc-path::$(which protoc)"
+
+  build:
+    name: Build
+    needs: setup
+    runs-on: ubuntu-latest
+    env:
+      PROTOC: ${{ needs.setup.outputs.protoc-path }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
 
       - name: Run cargo build
         uses: actions-rs/cargo@v1
@@ -25,24 +42,13 @@ jobs:
 
   test:
     name: Test
-    needs: Build
+    needs: setup
     runs-on: ubuntu-latest
+    env:
+      PROTOC: ${{ needs.setup.outputs.protoc-path }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v2
-        with:
-          name: build-artifacts
-          path: target/
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
