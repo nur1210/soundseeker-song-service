@@ -1,7 +1,7 @@
 on: push
 
 jobs:
-  check:
+  build:
     name: Build
     runs-on: ubuntu-latest
     steps:
@@ -37,6 +37,12 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: build-artifacts
+          path: target/
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
