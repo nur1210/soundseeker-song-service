@@ -25,7 +25,7 @@ jobs:
 
   test:
     name: Test
-    needs: Check
+    needs: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
