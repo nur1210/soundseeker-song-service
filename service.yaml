@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: song-service-service
+spec:
+  selector:
+    app: song-service
+  ports:
+    - name: grpc
+      port: 50052
+      targetPort: 50051

@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: song-service
+  labels:
+    app: song-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: song-service
+  template:
+    metadata:
+      name: song-service
+      labels:
+        app: song-service
+    spec:
+      containers:
+        - name: song-service
+          image: nurnechushtan/song_service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50051
+      restartPolicy: Always
+      

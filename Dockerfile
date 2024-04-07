@@ -1,7 +1,5 @@
 FROM rust:latest
 
-ENV SQLX_OFFLINE=true
-
 WORKDIR /usr/src/song_service
 
 COPY . .
