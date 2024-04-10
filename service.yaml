@@ -1,11 +1,15 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: song-service-service
+  name: song-service-headless
+  namespace: song-service
 spec:
+  type: ClusterIP
+  clusterIP: None
   selector:
     app: song-service
   ports:
     - name: grpc
-      port: 50052
+      protocol: TCP
+      port: 50051
       targetPort: 50051

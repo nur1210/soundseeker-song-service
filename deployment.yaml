@@ -2,16 +2,24 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: song-service
+  namespace: song-service
   labels:
     app: song-service
 spec:
-  replicas: 2
   selector:
     matchLabels:
       app: song-service
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
   template:
     metadata:
-      name: song-service
+      annotations:
+        prometheus.io/path: "/metrics"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
       labels:
         app: song-service
     spec:
@@ -21,5 +29,12 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 50051
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
       restartPolicy: Always
+      imagePullSecrets:
+        - name: regcred
       
