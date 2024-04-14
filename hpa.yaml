@@ -17,4 +17,4 @@ spec:
           name: grpc_requests_per_second
         target:
           type: AverageValue
-          averageValue: 300m
+          averageValue: 20000m
