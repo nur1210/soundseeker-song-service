@@ -1,11 +1,11 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::env;
 use std::error::Error;
 use sqlx::{FromRow};
-use sqlx::postgres::{PgPoolOptions};
+use sqlx::postgres::{PgPoolOptions, PgPool};
 use tracing::info;
 use crate::db::Repository;
-use sqlx::migrate::Migrator;
 
 #[derive(FromRow, Debug)]
 struct Hash {
@@ -35,21 +35,21 @@ struct Table {
 
 #[derive(Debug)]
 pub struct PostgresRepository {
-    pool: sqlx::postgres::PgPool,
+    pool: PgPool,
 }
 
 impl PostgresRepository {
     /// Connect to postgres database
     pub async fn open() -> Result<PostgresRepository, Box<dyn Error>> {
-        let url = "postgresql://postgres:password@localhost:5432/postgres";
+        let url = env::var("DB_URL").expect("DB_URL must be set");
         let pool = PgPoolOptions::new()
-            .connect(url).await?;
+            .connect(&url).await?;
         Ok(PostgresRepository { pool })
     }
-    //     pub async fn migrate(&self) -> Result<(), Box<dyn Error>> {
-    //     sqlx::migrate!("./migrations").run(&self.pool).await?;
-    //     Ok(())
-    // }
+        // pub async fn migrate(&self) -> Result<(), Box<dyn Error>> {
+        // sqlx::migrate!("./migrations").run(&self.pool).await?;
+        // Ok(())
+    }
 }
 
 impl Repository for PostgresRepository {
@@ -58,7 +58,7 @@ impl Repository for PostgresRepository {
         let query = r#"INSERT INTO songs (song) VALUES ($1) RETURNING sid;"#;
 
         let sid: (i32, ) = sqlx::query_as(query)
-            .bind(&song)
+            .bind(song)
             .fetch_one(&mut transaction)
             .await?;
 
@@ -133,12 +133,12 @@ impl Repository for PostgresRepository {
         let sql = r"SELECT * FROM songs WHERE sid=$1;";
         let query = sqlx::query_as::<_, Song>(sql);
         let song = query
-            .bind(&matchings[0].song_id)
+            .bind(matchings[0].song_id)
             .fetch_one(pool)
             .await?;
 
         // let similarity = ((matchings[0].match_num as f64 / hash_array.len() as f64) * 100.00) as isize;
-        Ok(Some(format!("{}", song.song)))
+        Ok(Some(song.song.to_string()))
     }
 
     async fn delete(&self, song: &str) -> Result<u64, Box<dyn Error>> {
