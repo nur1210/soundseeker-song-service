@@ -6,11 +6,12 @@ use echo::{echo_service_server::{EchoService as EService, EchoServiceServer},
 use song::song_service_server::SongService as SService;
 use db::Repository;
 use std::error::Error;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use dotenv::dotenv;
 use crate::db::pg::PostgresRepository;
 use crate::song::{AddSongRequest, AddSongResponse, RecognizeSongRequest, RecognizeSongResponse};
 use crate::song::song_service_server::SongServiceServer;
-use metrics::{counter, describe_counter};
+use metrics::{counter, describe_counter, describe_histogram, gauge, histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_util::MetricKindMask;
 
@@ -40,6 +41,7 @@ impl SService for SongService {
         &self,
         request: Request<AddSongRequest>,
     ) -> Result<Response<AddSongResponse>, Status> {
+        let start = Instant::now();
         counter!("grpc_requests_total").increment(1);
 
         let add_song_request = request.into_inner();
@@ -49,6 +51,7 @@ impl SService for SongService {
                 let response = AddSongResponse {
                     song_id: id,
                 };
+                histogram!("grpc_request_latency_seconds_bucket").record(start.elapsed());
                 Ok(Response::new(response))
             }
             Err(e) => Err(Status::aborted(e.to_string())),
@@ -59,6 +62,7 @@ impl SService for SongService {
         &self,
         request: Request<RecognizeSongRequest>,
     ) -> Result<Response<RecognizeSongResponse>, Status> {
+        let start = Instant::now();
         counter!("grpc_requests_total").increment(1);
 
         let add_song_request = request.into_inner();
@@ -70,6 +74,7 @@ impl SService for SongService {
                         let response = RecognizeSongResponse {
                             song_name: name,
                         };
+                        histogram!("grpc_request_latency_seconds_bucket").record(start.elapsed());
                         Ok(Response::new(response))
                     }
                     None => Err(Status::not_found("Could not recognize the song"))
@@ -89,13 +94,14 @@ impl EService for EchoService {
         &self,
         request: Request<EchoRequest>,
     ) -> Result<Response<EchoResponse>, Status> {
-        counter!("grpc_requests_total").increment(1);
+        let start = Instant::now();
         println!("Got a request: {:?}", request);
 
         let response = EchoResponse {
             message: format!("Echo: {}", request.into_inner().message),
         };
-
+        counter!("grpc_requests_total").increment(1);
+        histogram!("grpc_request_latency_seconds_bucket").record(start.elapsed());
         Ok(Response::new(response))
     }
 }
@@ -103,7 +109,9 @@ impl EService for EchoService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    start_promeheus_exporter();
+    dotenv().ok();
+    
+    start_prometheus_exporter();
     start_grpc_server().await?;
 
     Ok(())
@@ -119,11 +127,11 @@ async fn start_grpc_server() -> Result<(), Box<dyn Error>> {
         .add_service(SongServiceServer::new(song_service))
         .serve(grpc_addr)
         .await?;
-    
+
     Ok(())
 }
 
-fn start_promeheus_exporter() {
+fn start_prometheus_exporter() {
     PrometheusBuilder::new()
         .with_http_listener(([0, 0, 0, 0], 9090))
         .idle_timeout(
@@ -134,4 +142,5 @@ fn start_promeheus_exporter() {
         .expect("failed to install Prometheus recorder");
 
     describe_counter!("grpc_requests_total", "grpc requests");
+    describe_histogram!("grpc_request_latency_seconds_bucket", "grpc request latency")
 }
