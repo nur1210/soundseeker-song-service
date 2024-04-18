@@ -49,7 +49,7 @@ impl PostgresRepository {
         // pub async fn migrate(&self) -> Result<(), Box<dyn Error>> {
         // sqlx::migrate!("./migrations").run(&self.pool).await?;
         // Ok(())
-    }
+    // }
 }
 
 impl Repository for PostgresRepository {
