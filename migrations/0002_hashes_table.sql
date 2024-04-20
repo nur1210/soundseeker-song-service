@@ -6,6 +6,12 @@ CREATE TABLE public.hashes
     sid    integer
 );
 
+CREATE SEQUENCE public.hashes_hid_seq AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE Cache 1;
+
 ALTER SEQUENCE public.hashes_hid_seq OWNED BY public.hashes.hid;
 
 ALTER TABLE ONLY public.hashes

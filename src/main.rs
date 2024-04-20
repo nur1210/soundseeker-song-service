@@ -31,6 +31,7 @@ pub struct SongService {
 impl SongService {
     pub async fn new() -> Result<SongService, Box<dyn Error>> {
         let repo = PostgresRepository::open().await?;
+        repo.migrate().await?;
         Ok(SongService { repo })
     }
 }

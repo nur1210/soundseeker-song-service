@@ -41,15 +41,16 @@ pub struct PostgresRepository {
 impl PostgresRepository {
     /// Connect to postgres database
     pub async fn open() -> Result<PostgresRepository, Box<dyn Error>> {
-        let url = env::var("DB_URL").expect("DB_URL must be set");
+        let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
         let pool = PgPoolOptions::new()
             .connect(&url).await?;
         Ok(PostgresRepository { pool })
     }
-        // pub async fn migrate(&self) -> Result<(), Box<dyn Error>> {
-        // sqlx::migrate!("./migrations").run(&self.pool).await?;
-        // Ok(())
-    // }
+    pub async fn migrate(&self) -> Result<(), Box<dyn Error>> {
+        sqlx::migrate!("./migrations")
+            .run(&self.pool).await?;
+        Ok(())
+    }
 }
 
 impl Repository for PostgresRepository {
@@ -125,9 +126,9 @@ impl Repository for PostgresRepository {
         }
 
         matchings.sort_by_key(|a| Reverse(a.match_num));
-        
+
         if matchings[0].match_num == 0 {
-            return Ok(None)
+            return Ok(None);
         }
 
         let sql = r"SELECT * FROM songs WHERE sid=$1;";
