@@ -17,6 +17,8 @@ use metrics_util::MetricKindMask;
 
 pub mod echo {
     tonic::include_proto!("echo");
+    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
+        tonic::include_file_descriptor_set!("echo_descriptor");
 }
 
 pub mod song {
@@ -111,7 +113,7 @@ impl EService for EchoService {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
-    
+
     start_prometheus_exporter();
     start_grpc_server().await?;
 
@@ -123,7 +125,12 @@ async fn start_grpc_server() -> Result<(), Box<dyn Error>> {
     let echo_service = EchoService::default();
     let song_service = SongService::new().await?;
 
+    let reflection_service = tonic_reflection::server::Builder::configure()
+        .register_encoded_file_descriptor_set(echo::FILE_DESCRIPTOR_SET)
+        .build()?;
+
     Server::builder()
+        .add_service(reflection_service)
         .add_service(EchoServiceServer::new(echo_service))
         .add_service(SongServiceServer::new(song_service))
         .serve(grpc_addr)
