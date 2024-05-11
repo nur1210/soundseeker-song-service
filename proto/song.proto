@@ -2,32 +2,18 @@ syntax = "proto3";
 package song;
 
 service SongService {
-  rpc AddSong(AddSongRequest) returns (AddSongResponse);
   rpc RecognizeSong(RecognizeSongRequest) returns (RecognizeSongResponse);
-//  rpc deleteSong(DeleteSongRequest) returns (DeleteSongResponse);
 }
 
-message AddSongRequest {
-  string song_name = 1;
-  repeated uint64 hashes = 2;
-}
-
-message AddSongResponse {
-  sint32 song_id = 1;
+message Fingerprints {
+  string hash = 1;
+  int32 time = 2;
 }
 
 message RecognizeSongRequest {
-  repeated uint64 hashes = 1;
+  repeated Fingerprints fingerprints = 1;
 }
 
 message RecognizeSongResponse {
   string song_name = 1;
 }
-
-//message DeleteSongRequest {
-//  sint64 song_name = 1;
-//}
-//
-//message DeleteSongResponse {
-//  optional string song_name = 1;
-//}

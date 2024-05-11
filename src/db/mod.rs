@@ -1,12 +1,9 @@
 use std::error::Error;
+use crate::db::pg::Fingerprint;
 
 pub trait Repository {
-    /// Map hashes from hash_array to song.
-    async fn index(&self, song: &str, hash_array: &[usize]) -> Result<i32, Box<dyn Error>>;
-    /// Find the most similar song by hashes.
-    async fn find(&self, hash_array: &[usize]) -> Result<Option<String>, Box<dyn Error>>;
-    /// Delete song from database.
-    async fn delete(&self, song: &str) -> Result<u64, Box<dyn Error>>;
+    fn index(&self, song: &str, fingerprints: Vec<Fingerprint>) -> impl std::future::Future<Output=Result<(), Box<dyn Error>>> + Send;
+    fn find(&self, fingerprints: Vec<Fingerprint>) -> impl std::future::Future<Output=Result<Option<String>, Box<dyn Error>>> + Send;
 }
 
 pub mod pg;
