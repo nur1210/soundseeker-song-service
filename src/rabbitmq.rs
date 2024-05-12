@@ -4,6 +4,7 @@ use amqprs::channel::{BasicAckArguments, BasicCancelArguments, BasicConsumeArgum
 use amqprs::connection::{Connection, OpenConnectionArguments};
 use std::{io, time};
 use std::env::var;
+use std::time::Duration;
 use amqprs::{BasicProperties, DELIVERY_MODE_PERSISTENT, FieldName};
 use lazy_static::lazy_static;
 use tokio::spawn;
@@ -57,6 +58,27 @@ async fn check_for_new_fingerprints(connection_details: &RabbitConnect) -> Resul
 
     let connection = connect_to_rabbitmq(connection_details).await;
     let channel = channel_rabbitmq(&connection).await;
+
+    let mut queue_exists = false;
+    let max_retries = 10;
+
+    for i in 1..max_retries {
+        match channel.queue_declare(QueueDeclareArguments::new(&queue)).await {
+            Ok(_) => {
+                queue_exists = true;
+                break;
+            }
+            Err(_) => {
+                let retry_delay = Duration::from_secs(5 * i);
+                println!("Queue not found, retrying in {} seconds...", retry_delay.as_secs());
+                tokio::time::sleep(retry_delay).await;
+            }
+        }
+    }
+
+    if !queue_exists {
+        return Err(Box::new(io::Error::new(io::ErrorKind::Other, "queue not found after retries")));
+    }
 
     let consume_result = channel.basic_consume_rx(args.clone()).await;
 
