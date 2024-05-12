@@ -54,8 +54,6 @@ pub async fn consume_rabbitmq(repository: &PostgresRepository) {
 
 async fn check_for_new_fingerprints(connection_details: &RabbitConnect) -> Result<(String, Vec<Fingerprint>), Box<dyn Error>> {
     let queue = "fingerprint-queue".to_string();
-    let args = BasicConsumeArguments::new(&queue, format!("{} ?", queue).as_str());
-
     let connection = connect_to_rabbitmq(connection_details).await;
     let channel = channel_rabbitmq(&connection).await;
 
@@ -79,6 +77,8 @@ async fn check_for_new_fingerprints(connection_details: &RabbitConnect) -> Resul
     if !queue_exists {
         return Err(Box::new(io::Error::new(io::ErrorKind::Other, "queue not found after retries")));
     }
+
+    let args = BasicConsumeArguments::new(&queue, format!("{} ?", queue).as_str());
 
     let consume_result = channel.basic_consume_rx(args.clone()).await;
 
