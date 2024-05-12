@@ -1,10 +1,10 @@
 use std::error::Error;
 use amqprs::callbacks::{DefaultChannelCallback, DefaultConnectionCallback};
-use amqprs::channel::{BasicAckArguments, BasicCancelArguments, BasicConsumeArguments, Channel};
+use amqprs::channel::{BasicAckArguments, BasicCancelArguments, BasicConsumeArguments, BasicPublishArguments, Channel, QueueDeclareArguments};
 use amqprs::connection::{Connection, OpenConnectionArguments};
 use std::{io, time};
 use std::env::var;
-use amqprs::{FieldName};
+use amqprs::{BasicProperties, DELIVERY_MODE_PERSISTENT, FieldName};
 use lazy_static::lazy_static;
 use tokio::spawn;
 use tokio::time::sleep;
@@ -42,7 +42,10 @@ pub async fn consume_rabbitmq(repository: &PostgresRepository) {
             }
         };
         println!("New song: {}, with {} fingerprints", song_name, fingerprints.len());
-        repository.index(&song_name, fingerprints).await.unwrap();
+        match repository.index(&song_name, fingerprints).await {
+            Ok(_) => send(&CONN_DETAILS, "added-songs-queue", &song_name).await,
+            Err(e) => println!("Error indexing song: {}, error: {}", &song_name, e)
+        }
 
         sleep(time::Duration::from_secs(2)).await;
     }
@@ -55,25 +58,33 @@ async fn check_for_new_fingerprints(connection_details: &RabbitConnect) -> Resul
     let connection = connect_to_rabbitmq(connection_details).await;
     let channel = channel_rabbitmq(&connection).await;
 
-    let (ctag, mut messages_rx) = channel.basic_consume_rx(args.clone()).await.unwrap();
+    let consume_result = channel.basic_consume_rx(args.clone()).await;
 
-    if let Some(msg) = messages_rx.recv().await {
-        let data = msg.content.unwrap();
-        let prop = msg.basic_properties.unwrap();
-        let song_name = prop.headers().unwrap().get(&FieldName::try_from("song-name").unwrap()).unwrap();
+    match consume_result {
+        Ok((ctag, mut messages_rx)) => {
+            if let Some(msg) = messages_rx.recv().await {
+                let data = msg.content.unwrap();
+                let prop = msg.basic_properties.unwrap();
+                let song_name = prop.headers().unwrap().get(&FieldName::try_from("song-name").unwrap()).unwrap();
 
-        let fingerprints: Vec<Fingerprint> = serde_json::from_slice(&data).unwrap();
+                let fingerprints: Vec<Fingerprint> = serde_json::from_slice(&data).unwrap();
 
-        let args = BasicAckArguments::new(msg.deliver.unwrap().delivery_tag(), false);
-        let _ = channel.basic_ack(args).await;
+                let args = BasicAckArguments::new(msg.deliver.unwrap().delivery_tag(), false);
+                let _ = channel.basic_ack(args).await;
 
-        return Ok((song_name.to_string(), fingerprints));
+                return Ok((song_name.to_string(), fingerprints));
+            }
+
+            if let Err(e) = channel.basic_cancel(BasicCancelArguments::new(&ctag)).await {
+                println!("error {}", e);
+                return Err(Box::new(e));
+            };
+        }
+        Err(e) => {
+            println!("Error: {}", e);
+            return Err(Box::new(e));
+        }
     }
-
-    if let Err(e) = channel.basic_cancel(BasicCancelArguments::new(&ctag)).await {
-        println!("error {}", e);
-        return Err(Box::new(e));
-    };
 
     Err(Box::new(io::Error::new(io::ErrorKind::Other, "no messages")))
 }
@@ -121,46 +132,42 @@ async fn channel_rabbitmq(connection: &Connection) -> Channel {
     channel
 }
 
-// async fn send(
-//     connection_details: &RabbitConnect,
-//     queue: &str,
-//     name: &str,
-//     data: &str,
-// ) {
-//     let mut connection = connect_to_rabbitmq(connection_details).await;
-//     let mut channel = channel_rabbitmq(&connection).await;
-// 
-//     let q_args = QueueDeclareArguments::default()
-//         .queue(String::from(queue))
-//         .durable(true)
-//         .finish();
-//     let (queue_name, _, _) = channel.queue_declare(q_args).await.unwrap().unwrap();
-// 
-//     if !connection.is_open() {
-//         println!("Connection not open");
-//         connection = connect_to_rabbitmq(connection_details).await;
-//         channel = channel_rabbitmq(&connection).await;
-//         println!("{}", connection);
-//     }
-// 
-//     if !channel.is_open() {
-//         println!("channel is not open");
-//         channel = channel_rabbitmq(&connection).await;
-//     } else {
-//         let args = BasicPublishArguments::new("", &queue_name);
-//         let mut headers = FieldTable::new();
-//         headers.insert(FieldName::try_from("song-name").unwrap(), FieldValue::from(name));
-// 
-//         channel
-//             .basic_publish(
-//                 BasicProperties::default()
-//                     .with_delivery_mode(DELIVERY_MODE_PERSISTENT)
-//                     .with_headers(headers)
-//                     .finish(),
-//                 data.into(),
-//                 args,
-//             )
-//             .await
-//             .unwrap();
-//     }
-// }
+async fn send(
+    connection_details: &RabbitConnect,
+    queue: &str,
+    data: &str,
+) {
+    let mut connection = connect_to_rabbitmq(connection_details).await;
+    let mut channel = channel_rabbitmq(&connection).await;
+
+    let q_args = QueueDeclareArguments::default()
+        .queue(String::from(queue))
+        .durable(true)
+        .finish();
+    let (queue_name, _, _) = channel.queue_declare(q_args).await.unwrap().unwrap();
+
+    if !connection.is_open() {
+        println!("Connection not open");
+        connection = connect_to_rabbitmq(connection_details).await;
+        channel = channel_rabbitmq(&connection).await;
+        println!("{}", connection);
+    }
+
+    if !channel.is_open() {
+        println!("channel is not open");
+        channel = channel_rabbitmq(&connection).await;
+    } else {
+        let args = BasicPublishArguments::new("", &queue_name);
+
+        channel
+            .basic_publish(
+                BasicProperties::default()
+                    .with_delivery_mode(DELIVERY_MODE_PERSISTENT)
+                    .finish(),
+                data.into(),
+                args,
+            )
+            .await
+            .unwrap();
+    }
+}
