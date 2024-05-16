@@ -54,85 +54,82 @@ pub async fn consume_rabbitmq(repository: &PostgresRepository) {
 
 async fn check_for_new_fingerprints(connection_details: &RabbitConnect) -> Result<(String, Vec<Fingerprint>), Box<dyn Error>> {
     let queue = "fingerprint-queue".to_string();
-    let connection = connect_to_rabbitmq(connection_details).await;
-    let channel = channel_rabbitmq(&connection).await;
 
-    let mut queue_exists = false;
-    let max_retries = 10;
-
-    for i in 1..max_retries {
-        match channel.queue_declare(QueueDeclareArguments::new(&queue)).await {
-            Ok(_) => {
-                queue_exists = true;
-                break;
-            }
-            Err(_) => {
-                let retry_delay = Duration::from_secs(5 * i);
-                println!("Queue not found, retrying in {} seconds...", retry_delay.as_secs());
-                tokio::time::sleep(retry_delay).await;
-            }
-        }
-    }
-
-    if !queue_exists {
-        return Err(Box::new(io::Error::new(io::ErrorKind::Other, "queue not found after retries")));
-    }
+    let mut connection = connect_to_rabbitmq(&connection_details).await;
+    let mut channel = channel_rabbitmq(&connection).await;
 
     let args = BasicConsumeArguments::new(&queue, format!("{} ?", queue).as_str());
 
-    let consume_result = channel.basic_consume_rx(args.clone()).await;
-
-    match consume_result {
-        Ok((ctag, mut messages_rx)) => {
-            if let Some(msg) = messages_rx.recv().await {
-                let data = msg.content.unwrap();
-                let prop = msg.basic_properties.unwrap();
-                let song_name = prop.headers().unwrap().get(&FieldName::try_from("song-name").unwrap()).unwrap();
-
-                let fingerprints: Vec<Fingerprint> = serde_json::from_slice(&data).unwrap();
-
-                let args = BasicAckArguments::new(msg.deliver.unwrap().delivery_tag(), false);
-                let _ = channel.basic_ack(args).await;
-
-                return Ok((song_name.to_string(), fingerprints));
-            }
-
-            if let Err(e) = channel.basic_cancel(BasicCancelArguments::new(&ctag)).await {
-                println!("error {}", e);
-                return Err(Box::new(e));
-            };
-        }
-        Err(e) => {
-            println!("Error: {}", e);
-            return Err(Box::new(e));
-        }
+    if !connection.is_open() {
+        println!("Connection not open");
+        connection = connect_to_rabbitmq(connection_details).await;
+        channel = channel_rabbitmq(&connection).await;
+        println!("{}", connection);
     }
 
-    Err(Box::new(io::Error::new(io::ErrorKind::Other, "no messages")))
+    if !channel.is_open() {
+        println!("channel is not open");
+        channel = channel_rabbitmq(&connection).await;
+    }
+
+    let (ctag, mut messages_rx) = match channel.basic_consume_rx(args.clone()).await {
+        Ok(res) => res,
+        Err(e) => {
+            println!("error {}", e.to_string());
+            sleep(Duration::from_secs(10)).await;
+            return Box::pin(check_for_new_fingerprints(connection_details)).await;
+        }
+    };
+
+    if let Some(msg) = messages_rx.recv().await {
+        let data = msg.content.unwrap();
+        let prop = msg.basic_properties.unwrap();
+        let song_name = prop.headers().unwrap().get(&FieldName::try_from("song-name").unwrap()).unwrap();
+
+        let fingerprints: Vec<Fingerprint> = serde_json::from_slice(&data).unwrap();
+
+        let args = BasicAckArguments::new(msg.deliver.unwrap().delivery_tag(), false);
+        let _ = channel.basic_ack(args).await;
+
+        return Ok((song_name.to_string(), fingerprints));
+    }
+
+    if let Err(e) = channel.basic_cancel(BasicCancelArguments::new(&ctag)).await {
+        println!("error {}", e.to_string());
+        return Err(Box::new(e));
+    };
+
+    Err(Box::new(io::Error::new(
+        io::ErrorKind::Other,
+        "An error occurred",
+    )))
 }
 
 async fn connect_to_rabbitmq(connection_details: &RabbitConnect) -> Connection {
     let mut res = Connection::open(
-        OpenConnectionArguments::new(
+        &OpenConnectionArguments::new(
             &connection_details.host,
             connection_details.port,
             &connection_details.username,
             &connection_details.password,
         )
-            .virtual_host(&connection_details.virtual_host),
+        .virtual_host(&connection_details.virtual_host),
     )
-        .await;
+    .await;
 
     while res.is_err() {
         println!("trying to connect after error");
-        sleep(time::Duration::from_millis(2000)).await;
-        res = Connection::open(&OpenConnectionArguments::new(
-            &connection_details.host,
-            connection_details.port,
-            &connection_details.username,
-            &connection_details.password,
-        ))
-            .await;
+        sleep(Duration::from_millis(2000)).await;
+        res = Connection::open(
+            &OpenConnectionArguments::new(
+                &connection_details.host,
+                connection_details.port,
+                &connection_details.username,
+                &connection_details.password,
+            )
+            .virtual_host(&connection_details.virtual_host),
+        )
+        .await;
     }
 
     let connection = res.unwrap();
@@ -151,6 +148,12 @@ async fn channel_rabbitmq(connection: &Connection) -> Channel {
         .await
         .unwrap();
 
+    let q_args = QueueDeclareArguments::default()
+        .queue(String::from("added-songs-queue"))
+        .durable(true)
+        .finish();
+    channel.queue_declare(q_args).await.unwrap().unwrap();
+
     channel
 }
 
@@ -162,11 +165,6 @@ async fn send(
     let mut connection = connect_to_rabbitmq(connection_details).await;
     let mut channel = channel_rabbitmq(&connection).await;
 
-    let q_args = QueueDeclareArguments::default()
-        .queue(String::from(queue))
-        .durable(true)
-        .finish();
-    let (queue_name, _, _) = channel.queue_declare(q_args).await.unwrap().unwrap();
 
     if !connection.is_open() {
         println!("Connection not open");
@@ -179,7 +177,7 @@ async fn send(
         println!("channel is not open");
         channel = channel_rabbitmq(&connection).await;
     } else {
-        let args = BasicPublishArguments::new("", &queue_name);
+        let args = BasicPublishArguments::new("", queue);
 
         channel
             .basic_publish(
