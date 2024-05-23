@@ -2,3 +2,8 @@ target
 .gitignore
 .git
 .github
+.env
+deployment.yaml
+hpa.yaml
+ns.yaml
+service.yaml

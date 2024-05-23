@@ -19,8 +19,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 
     start_prometheus_exporter();
-    consume_rabbitmq(&repository).await;
-    start_grpc_server(repository).await?;
+    let rabbitmq_consumer = consume_rabbitmq(&repository);
+    let grpc_server = start_grpc_server(repository.clone());
+
+    let (_grpc_result, _rabbitmq_result) = tokio::join!(grpc_server, rabbitmq_consumer);
 
     Ok(())
 }
