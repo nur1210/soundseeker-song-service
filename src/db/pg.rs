@@ -39,7 +39,7 @@ struct Song {
 //     timedelta_best: HashMap<i32, usize>,
 // }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PostgresRepository {
     pool: PgPool,
 }
